@@ -1,0 +1,232 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horácios e Curiácios</title>
+<style>
+  body { font-family: sans-serif; text-align: center; background: #eee; }
+  h1 { font-size: 2rem; }
+  #tabuleiro {
+    display: grid;
+    grid-template-columns: repeat(7, 60px);
+    grid-template-rows: repeat(8, 60px);
+    margin: 1rem auto;
+    border: 4px solid #333;
+  }
+  .casa {
+    width: 60px; height: 60px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; cursor: pointer;
+    position: relative;
+  }
+  .clara { background: #f0d9b5; }
+  .escura { background: #b58863; }
+  .selecionada { outline: 3px solid red; }
+  .destino-valido::after {
+    content: "";
+    position: absolute;
+    width: 80%;
+    height: 80%;
+    background-color: rgba(0, 255, 0, 0.3);
+    border-radius: 8px;
+  }
+  .horacio { background-color: rgba(0, 120, 255, 0.3); border-radius: 50%; padding: 5px; }
+  .curiacio { background-color: rgba(255, 50, 50, 0.4); border-radius: 50%; padding: 5px; }
+  #controle { margin-top: 10px; }
+  button { padding: 8px 12px; font-size: 16px; cursor: pointer; margin: 5px; }
+  #placar { margin-top: 10px; font-size: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>Os Horácios e os Curiácios</h1>
+<div id="tabuleiro"></div>
+<div id="controle">
+  <button onclick="zerarTreinamento()">🧹 Zerar Treinamento</button>
+  <button onclick="reiniciarJogo()">🔄 Reiniciar o Jogo</button>
+  <button onclick="simularAprendizado()">📊 Treinamento 100 jogos</button>
+</div>
+<div id="placar"></div>
+<canvas id="grafico" width="400" height="150"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let pecas, donos, selecionado = null, movimentosValidos = [], vitoriasH = 0, vitoriasC = 0, empates = 0;
+let historicoCuriacio = [];
+
+function estadoInicial() {
+  pecas = {
+    'C8': '🏹', 'D8': '🏹', 'E8': '🏹',
+    'C7': '🗡️', 'D7': '🗡️', 'E7': '🗡️',
+    'C6': '⚔️', 'D6': '⚔️', 'E6': '⚔️',
+    'C1': '🏹', 'D1': '🏹', 'E1': '🏹',
+    'C2': '🗡️', 'D2': '🗡️', 'E2': '🗡️',
+    'C3': '⚔️', 'D3': '⚔️', 'E3': '⚔️'
+  };
+  donos = {};
+  for (const pos in pecas) {
+    donos[pos] = parseInt(pos[1]) >= 6 ? 'C' : 'H';
+  }
+  atualizarTabuleiro();
+}
+
+function atualizarTabuleiro() {
+  const tabuleiro = document.getElementById('tabuleiro');
+  tabuleiro.innerHTML = '';
+  for (let row = 8; row >= 1; row--) {
+    for (let col = 0; col < 7; col++) {
+      const letra = String.fromCharCode(65 + col);
+      const coord = letra + row;
+      const casa = document.createElement('div');
+      casa.className = 'casa ' + ((row + col) % 2 === 0 ? 'clara' : 'escura');
+      if (selecionado === coord) casa.classList.add('selecionada');
+      if (movimentosValidos.includes(coord)) casa.classList.add('destino-valido');
+
+      casa.onclick = () => cliqueCasa(coord);
+
+      const peca = pecas[coord];
+      if (peca) {
+        const span = document.createElement('span');
+        span.textContent = peca;
+        span.className = donos[coord] === 'H' ? 'horacio' : 'curiacio';
+        casa.appendChild(span);
+      }
+      tabuleiro.appendChild(casa);
+    }
+  }
+  atualizarPlacar();
+  verificarFimDeJogo();
+}
+
+function cliqueCasa(coord) {
+  if (selecionado) {
+    if (movimentosValidos.includes(coord)) {
+      pecas[coord] = pecas[selecionado];
+      donos[coord] = donos[selecionado];
+      delete pecas[selecionado];
+      delete donos[selecionado];
+      selecionado = null;
+      movimentosValidos = [];
+      atualizarTabuleiro();
+      setTimeout(jogadaCuriacio, 200);
+    } else {
+      selecionado = null;
+      movimentosValidos = [];
+      atualizarTabuleiro();
+    }
+  } else if (pecas[coord] && donos[coord] === 'H') {
+    selecionado = coord;
+    movimentosValidos = gerarMovimentosValidos(coord);
+    atualizarTabuleiro();
+  }
+}
+
+function gerarMovimentosValidos(origem) {
+  const tipo = pecas[origem];
+  const movimentos = [];
+  const col0 = origem.charCodeAt(0);
+  const row0 = parseInt(origem[1]);
+  const alcance = tipo === '🏹' ? 3 : tipo === '🗡️' ? 2 : 1;
+
+  for (let dx = -alcance; dx <= alcance; dx++) {
+    for (let dy = -alcance; dy <= alcance; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const col = String.fromCharCode(col0 + dx);
+      const row = row0 + dy;
+      const destino = col + row;
+      if (col >= 'A' && col <= 'G' && row >= 1 && row <= 8) {
+        if (!pecas[destino] || donos[destino] !== donos[origem]) {
+          movimentos.push(destino);
+        }
+      }
+    }
+  }
+  return movimentos;
+}
+
+function jogadaCuriacio() {
+  let melhorJogada = null;
+  let melhorPeso = -Infinity;
+
+  for (const pos in pecas) {
+    if (donos[pos] !== 'C') continue;
+    const moves = gerarMovimentosValidos(pos);
+    for (const destino of moves) {
+      const peso = Math.random() + (pecas[destino] ? 1 : 0);
+      if (peso > melhorPeso) {
+        melhorPeso = peso;
+        melhorJogada = { origem: pos, destino };
+      }
+    }
+  }
+
+  if (melhorJogada) {
+    const { origem, destino } = melhorJogada;
+    pecas[destino] = pecas[origem];
+    donos[destino] = 'C';
+    delete pecas[origem];
+    delete donos[origem];
+  }
+  atualizarTabuleiro();
+}
+
+function reiniciarJogo() {
+  selecionado = null;
+  movimentosValidos = [];
+  estadoInicial();
+}
+
+
+function zerarTreinamento() {
+  vitoriasH = 0; vitoriasC = 0; empates = 0; historicoCuriacio = [];
+  atualizarPlacar();
+  desenharGrafico();
+}
+
+function simularAprendizado()
+ {
+  for (let i = 0; i < 10; i++) {
+    estadoInicial();
+    for (let turno = 0; turno < 20; turno++) jogadaCuriacio();
+    verificarFimDeJogo();
+  }
+  reiniciarJogo();
+  desenharGrafico();
+}
+
+function atualizarPlacar() {
+  document.getElementById("placar").innerHTML = `🔵 Horácios: ${vitoriasH} | 🔴 Curiácios: ${vitoriasC} | 🤝 Empates: ${empates}`;
+}
+
+function verificarFimDeJogo() {
+  const vivosH = Object.values(donos).filter(d => d === 'H').length;
+  const vivosC = Object.values(donos).filter(d => d === 'C').length;
+  if (vivosH === 0) { vitoriasC++; historicoCuriacio.push(vitoriasC); }
+  else if (vivosC === 0) { vitoriasH++; }
+  else if (vivosH === 1 && vivosC === 1) { empates++; }
+}
+
+function desenharGrafico() {
+  const ctx = document.getElementById('grafico').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: historicoCuriacio.map((_, i) => i + 1),
+      datasets: [{
+        label: 'Vitórias dos Curiácios',
+        data: historicoCuriacio,
+        fill: false,
+        borderColor: 'red',
+        tension: 0.1
+      }]
+    },
+    options: {
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+estadoInicial();
+</script>
+</body>
+</html>
